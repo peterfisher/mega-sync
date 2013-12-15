@@ -3,7 +3,6 @@ cache.db
 *.log
 mega_sync_notes
 design
-config
 stage/
 .idea
 *.tar.gz
