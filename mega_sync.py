@@ -7,6 +7,7 @@ __author__ = 'peter@phyn3t.com'
 import sqlite3
 import logging
 import os
+import time
 import sys
 import ConfigParser
 import ntpath
@@ -103,7 +104,7 @@ def build_mega_store():
         MEGA_STORE:
             key - the result of megaz.get_id()
             value - the result of megaz.get_obj()
-            
+
     """
 
     global MEGA_STORE
@@ -123,8 +124,7 @@ def update_mega_cache():
     """ Discover our mega.co.nz file system and add it to our sqlite db.
     """
 
-    if MEGA_STORE is None:
-        build_mega_store()
+    build_mega_store()
 
     DB.execute('DELETE from remote') #TODO: make efficient
     for item in MEGA_STORE:
@@ -216,10 +216,12 @@ def find_parent(path=None):
 
 def download(mega_obj=None, path=None):
     """ Download our mega object
+
+        mega_obj - mega object we would like to download
+        path - The directory the file should be downloaded to
     """
 
     megaz = mega_thing(mega_obj)
-
     if megaz.get_type() == 'folder':
         path = LOCAL_SYNC + build_mega_path(megaz)
         os.makedirs(path)
@@ -236,10 +238,40 @@ def upload(local_path=None, parent_id=None, name=None):
 
     """
 
-    if os.path.isfile(local_path):
-        MEGA_OBJ.upload(local_path, parent_id, name)
-    else:
-        MEGA_OBJ.create_folder(name, parent_id)
+    failures = 0
+    err = None
+
+    while 1:
+        if failures > 3:
+            raise err
+        try:
+            if os.path.isdir(local_path):
+                megaz = MEGA_OBJ.create_folder(name, parent_id)
+                timestamp = megaz[u'f'][0][u'ts']
+                mega_id = megaz[u'f'][0][u'h']
+                relative_path = local_path.replace(LOCAL_SYNC, '/')
+                DB.execute("INSERT or REPLACE INTO "
+                        "remote values ('%s', '%s', '%s', '%s');"
+                        %(relative_path, 'folder', mega_id,
+                            timestamp))
+                DB.commit()
+                return
+            else:
+                megaz = MEGA_OBJ.upload(local_path, parent_id, name)
+                timestamp = megaz[u'f'][0][u'ts']
+                mega_id = megaz[u'f'][0][u'h']
+                os.utime(local_path, (timestamp, timestamp))
+                relative_path = local_path.replace(LOCAL_SYNC, '/')
+                DB.execute("INSERT or REPLACE INTO "
+                        "remote values ('%s', '%s', '%s', '%s');"
+                        %(relative_path, 'file', mega_id, timestamp))
+                DB.commit()
+                return
+        except Exception as whoops:
+            err = whoops
+            print("Failed uploading file. Reason: %s" % str(whoops))
+            failures += 1
+            pass
 
 
 def add_operation():
@@ -302,6 +334,27 @@ def delete_operation():
                 logging.warn("Local file couldn't be deleted: %s" %(path))
                 print(str(err))
 
+def check_modifications():
+    """ Check for modifications to existing files.
+    """
+
+    diff = DB.get_diff()
+    current_mega = get_mega()
+
+    for path in diff[1]:
+        l_timestamp = diff[1][path].replace(u'.0','')
+        if l_timestamp == u'0': #TODO: actually use timestamp on dirs
+            continue
+        if l_timestamp != diff[0][path]:
+            if l_timestamp > diff[0][path]:
+                local_path = LOCAL_SYNC.rstrip('/') + path
+                upload(local_path, find_parent(path), ntpath.basename(path))
+                MEGA_OBJ.destroy(current_mega[path])
+            else:
+                obj_id = current_mega[path]
+                local_path = LOCAL_SYNC.rstrip('/') + path
+                local_path = os.path.dirname(local_path)
+                download(MEGA_STORE[obj_id], local_path)
 
 def main():
     """ Main Control Function dude
@@ -329,7 +382,8 @@ def main():
     update_local_cache()
     update_mega_cache()
 
-    #TODO: Modification to existing files...
+    # Check for modifications to files
+    check_modifications()
 
     DB.close()
 

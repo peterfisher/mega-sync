@@ -120,5 +120,22 @@ class bucket:
 
         return row_set
 
+    def get_diff(self):
+        """ Get data used for finding diff between local and remote.
+            Return list containing tuple with file and timestamp
+        """
+
+        diff_report = [{}, {}]
+
+        remote_rows = self.execute('SELECT path,timestamp from remote')
+        for row in remote_rows:
+            diff_report[0][row[0]] = row[1]
+        local_rows = self.execute('SELECT path,timestamp from local')
+        for row in local_rows:
+            diff_report[1][row[0]] = row[1]
+
+        return diff_report
+
+
 
 
