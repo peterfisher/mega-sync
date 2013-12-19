@@ -1,15 +1,22 @@
 mega-sync
 ===================
 
-Python Sync Application for mega.co.nz
+Welcome! mega-sync is a Python based sync application for mega.co.nz.
 
-THIS IS STILL IN DEVELOPMENT. 
+It takes three steps to setup this application.
 
-This Python script will _eventually_ be able to keep a local folder in 'sync'
-with mega.co.nz.
+Setup instructions:
+1. Clone this repository
+2. Modify the configuration file named 'config'.
+3. Setup a cronjob or launchd job and you're done.
 
-Included is the following extra classes to assist us and you might find useful
+
+EXTRAS!! 
+Included is the following extra classes you might find useful
 for your own application:
 * bucket.py - helps us with our local sqlite3 database
 * mega_thing.py - helps us easily deal with mega objects returned from Mega
-* mega_sync.py - a work in progress; our sync application.
+* mega_sync.py - our sync application.
+
+
+Have fun.
