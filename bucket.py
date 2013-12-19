@@ -10,6 +10,7 @@ import sqlite3
 import logging
 import re
 import os
+import base64
 
 class bucket:
 
@@ -77,15 +78,32 @@ class bucket:
         """
 
         try:
+            self.logger.debug(sql)
             result = self.db.execute(sql)
 
-        except sqlite3.OperationalError as error:
+        except sqlite3.OperationalError as err:
+            print str(err)
             regex = r'(?:sqlite3.OperationalError: near).*'
-            error_info = re.match(regex, str(error)).group(0) #danger
+            error_info = re.match(regex, str(err)).group(0) #danger
             logger.error('Invalid SQL syntax near: ' + error_info)
             return False
 
         return result
+
+    def put_cache(self, path=None, ftype=None, mega_id=None, timestamp=None):
+        """ Update our local caches
+            path - relative file path
+            ftype - string either: (file, folder)
+            mid - mega id
+            timestamp - string epoch ref point
+
+        """
+
+        row_tuple = (path, ftype, mega_id, timestamp)
+
+        self.logger.debug("Cache Path: " + path)
+        self.insert_local(row_tuple)
+        self.insert_remote(row_tuple)
 
 
     def commit(self):
@@ -106,7 +124,8 @@ class bucket:
         row_set = set()
         local_rows = self.execute('SELECT path from local').fetchall()
         for row in local_rows:
-            row_set.add(row[0])
+            path_decoded = base64.b64decode(row[0])
+            row_set.add(path_decoded)
         return row_set
 
     def get_remote(self):
@@ -116,8 +135,8 @@ class bucket:
         row_set = set()
         remote_rows = self.execute('SELECT path from remote').fetchall()
         for row in remote_rows:
-            row_set.add(row[0])
-
+            path_decoded = base64.b64decode(row[0])
+            row_set.add(path_decoded)
         return row_set
 
     def get_diff(self):
@@ -129,13 +148,46 @@ class bucket:
 
         remote_rows = self.execute('SELECT path,timestamp from remote')
         for row in remote_rows:
-            diff_report[0][row[0]] = row[1]
+            diff_report[0][base64.b64decode(row[0])] = row[1]
         local_rows = self.execute('SELECT path,timestamp from local')
         for row in local_rows:
-            diff_report[1][row[0]] = row[1]
+            diff_report[1][base64.b64decode(row[0])] = row[1]
 
         return diff_report
 
+    def insert_local(self, row=None):
+        """ Handle inserts into our local cache.
+
+            row - a tuple containing the following:
+                * path - string with file path
+                * ftype - string 'file' or 'folder'
+                * mega_id - mega object id
+                * timestamp - time since EPOCH
+
+        """
+
+        self.execute("INSERT or REPLACE INTO "
+                "local values (\"%s\", '%s', '%s', '%s');"
+                %(base64.standard_b64encode(row[0]), row[1], row[2],
+                    row[3]))
+        self.commit()
+
+    def insert_remote(self, row=None):
+        """ Handle inserts into our remote cache.
+
+            row - a tuple containing the following:
+                * path - string with file path
+                * ftype - string 'file' or 'folder'
+                * mega_id - mega object id
+                * timestamp - time since EPOCH
+
+        """
+
+        self.execute("INSERT or REPLACE INTO "
+            "remote values ('%s', '%s', '%s', '%s');"
+            %(base64.standard_b64encode(row[0]), row[1], row[2],
+                row[3]))
+        self.commit()
 
 
 

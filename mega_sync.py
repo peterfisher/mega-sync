@@ -16,6 +16,7 @@ import shutil
 from mega_thing import mega_thing
 import base64 as b64
 from mega import Mega
+from mega.errors import ValidationError, RequestError
 from bucket import bucket
 
 #Global Vars
@@ -27,6 +28,8 @@ LOGGER = None
 DB = None
 MEGA_STORE = {}
 INITIAL_STORE = {}
+SHIT_API = 0
+ERROR_THRESHOLD = 9001
 
 def load_config(CONFIG_PATH=None):
     """Load configuration file
@@ -44,6 +47,8 @@ def load_config(CONFIG_PATH=None):
     try:
         LOCAL_SYNC = config.get('main', 'local')
         LOG_FILE = config.get('main', 'log')
+        if LOG_FILE[-1:] != '/':
+            LOG_FILE = LOG_FILE + '/'
         user = config.get('main', 'user')
         passwd = config.get('main', 'passwd')
     except ConfigParser.Error as error:
@@ -80,21 +85,15 @@ def update_local_cache():
     DB.execute('delete from local') #TODO: make efficient
 
     for dirr in directories:
-        DB.execute("INSERT or REPLACE INTO "
-          "local values ('%s', 'D', '%s', '0');"
-          %(dirr[len(LOCAL_SYNC)-1:], 'None'))
+        DB.insert_local((dirr[len(LOCAL_SYNC)-1:], 'folder', 'None', 0))
 
     for path, subdirs, files in os.walk(LOCAL_SYNC):
         for name in files:
             rel_path = os.path.join(path, name).lstrip('.')
-            file_size = os.path.getsize(rel_path)
             md5 = "None"
             # path, type, md5, timestamp
-            DB.execute("INSERT or REPLACE INTO "
-                "local values ('%s', 'F', '%s', '%s');"
-                %(rel_path[len(LOCAL_SYNC)-1:], md5,
-                os.path.getmtime(os.path.join(path, name))))
-    DB.commit()
+            DB.insert_local((rel_path[len(LOCAL_SYNC)-1:], md5,
+                             os.path.getmtime(os.path.join(path, name))))
 
 
 def build_mega_store():
@@ -109,8 +108,21 @@ def build_mega_store():
 
     global MEGA_STORE
     global INITIAL_STORE
+    global SHIT_API
 
-    all_obj = MEGA_OBJ.get_files()
+    #TODO: Need to fix this upstream or override functio
+    #TODO: mega:115
+    while 1:
+        if SHIT_API > ERROR_THRESHOLD:
+            raise RequestError
+        try:
+            all_obj = MEGA_OBJ.get_files()
+            break
+        except RequestError:
+            print("Bad result from Mega API... Trying again.")
+            SHIT_API += 1
+            pass
+
     INITIAL_STORE = all_obj
 
     for mega_dict in all_obj:
@@ -131,11 +143,8 @@ def update_mega_cache():
         megaz = mega_thing(MEGA_STORE[item])
         path = build_mega_path(megaz)
         mega_id = megaz.get_id()
-        # path, type, mega id, timestamp
-        DB.execute("INSERT or REPLACE INTO "
-                "remote values ('%s', '%s', '%s', '%s');"
-                %(path, megaz.get_type(), mega_id, megaz.get_timestamp()))
-    DB.commit()
+        DB.insert_remote((path, megaz.get_type(), mega_id,
+                          megaz.get_timestamp()))
 
 
 def build_mega_path(megaz=None, style='relative'):
@@ -238,39 +247,36 @@ def upload(local_path=None, parent_id=None, name=None):
 
     """
 
-    failures = 0
+    global SHIT_API
     err = None
 
     while 1:
-        if failures > 3:
+        if SHIT_API > ERROR_THRESHOLD:
             raise err
         try:
             if os.path.isdir(local_path):
                 megaz = MEGA_OBJ.create_folder(name, parent_id)
+
                 timestamp = megaz[u'f'][0][u'ts']
                 mega_id = megaz[u'f'][0][u'h']
                 relative_path = local_path.replace(LOCAL_SYNC, '/')
-                DB.execute("INSERT or REPLACE INTO "
-                        "remote values ('%s', '%s', '%s', '%s');"
-                        %(relative_path, 'folder', mega_id,
-                            timestamp))
-                DB.commit()
+                DB.put_cache(relative_path, 'folder', mega_id, timestamp)
+
                 return
             else:
                 megaz = MEGA_OBJ.upload(local_path, parent_id, name)
+
                 timestamp = megaz[u'f'][0][u'ts']
                 mega_id = megaz[u'f'][0][u'h']
                 os.utime(local_path, (timestamp, timestamp))
                 relative_path = local_path.replace(LOCAL_SYNC, '/')
-                DB.execute("INSERT or REPLACE INTO "
-                        "remote values ('%s', '%s', '%s', '%s');"
-                        %(relative_path, 'file', mega_id, timestamp))
-                DB.commit()
+                DB.put_cache(relative_path, 'file', mega_id, timestamp)
+
                 return
-        except Exception as whoops:
+        except RequestError as whoops:
             err = whoops
             print("Failed uploading file. Reason: %s" % str(whoops))
-            failures += 1
+            SHIT_API += 1
             pass
 
 
@@ -288,12 +294,7 @@ def add_operation():
     for item in diff_local:
         local_path = LOCAL_SYNC + item.lstrip('/')
         parent_id = find_parent(local_path)
-        try:
-            upload(local_path, parent_id, ntpath.basename(item))
-        except Exception as err:
-            LOGGER.error('Failed to upload new files to mega...')
-            print str(err)
-            sys.exit(2)
+        upload(local_path, parent_id, ntpath.basename(item))
 
     diff_remote = set(current_mega.keys()) - cached_mega
     for obj_path in diff_remote:
@@ -334,6 +335,7 @@ def delete_operation():
                 logging.warn("Local file couldn't be deleted: %s" %(path))
                 print(str(err))
 
+
 def check_modifications():
     """ Check for modifications to existing files.
     """
@@ -355,6 +357,7 @@ def check_modifications():
                 local_path = LOCAL_SYNC.rstrip('/') + path
                 local_path = os.path.dirname(local_path)
                 download(MEGA_STORE[obj_id], local_path)
+
 
 def main():
     """ Main Control Function dude
