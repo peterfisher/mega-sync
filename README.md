@@ -21,6 +21,6 @@ for your own application:
 
 Have fun!
 
-Contact:
-fisher@posteo.nl
+Contact:<br>
+fisher@posteo.nl<br>
 PGP Pub Key: http://pgp.mit.edu/pks/lookup?op=get&search=0xDF2DFEE32ECFDFD2
