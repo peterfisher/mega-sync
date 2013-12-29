@@ -6,9 +6,11 @@ Welcome! mega-sync is a Python based sync application for mega.co.nz.
 It takes three steps to setup this application.
 
 Setup instructions:
-1. Clone this repository
-2. Modify the configuration file named 'config'.
-3. Setup a cronjob or launchd job and you're done.
+<ol>
+<li> Clone this repository </li>
+<li> Modify the configuration file named 'config'. </li>
+<li> python mega_sync.py --config config_file </li>
+</ol>
 
 
 EXTRAS!! 
