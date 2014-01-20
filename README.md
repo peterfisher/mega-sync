@@ -24,5 +24,4 @@ for your own application:
 Have fun!
 
 Contact:<br>
-fisher@posteo.nl<br>
-PGP Pub Key: http://pgp.mit.edu/pks/lookup?op=get&search=0xDF2DFEE32ECFDFD2
+GPG fingerprint: 0xdf2dfee32ecfdfd2
